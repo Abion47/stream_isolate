@@ -1,5 +1,5 @@
 name: stream_isolate
-description: An isolate wrapper for stream-powered intercommunication.
+description: A utility wrapper class for working with isolates using stream-powered intercommunication.
 version: 0.1.0
 homepage: https://github.com/abion47/stream_isolate
 repository: https://github.com/abion47/stream_isolate
