@@ -1,6 +1,8 @@
 [![pub package](https://img.shields.io/pub/v/stream_isolate.svg)](https://pub.dartlang.org/packages/stream_isolate)
 [![github stars](https://img.shields.io/github/stars/abion47/stream_isolate.svg?style=flat&logo=github&colorB=deeppink&label=stars)](https://github.com/abion47/stream_isolate)
 [![license MIT](https://img.shields.io/badge/license-MIT-purple.svg)](https://opensource.org/licenses/MIT)
+[![Build Status](https://github.com/abion47/stream_isolate/workflows/Dart/badge.svg)](https://github.com/abion47/stream_isolate/actions)
+[![Code Coverage](https://codecov.io/gh/abion47/stream_isolate/branch/master/graph/badge.svg)](https://codecov.io/gh/abion47/stream_isolate)
 
 A wrapper class for `Isolate` that exposes a communication channel using a `Stream`.
 
