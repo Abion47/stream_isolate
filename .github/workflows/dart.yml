@@ -1,0 +1,40 @@
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+name: Dart
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: dart-lang/setup-dart@2.17.0
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Install coverage tools
+        run: dart pub global activate coverage
+
+      - name: Analyze project source
+        run: dart analyze
+
+      - name: Run tests
+        run: dart test --coverage="coverage"
+
+      - name: Generate code coverage report
+        run: format_coverage --lcov --in=coverage --out=coverage.lcov --packages=.dart_tool/package_config.json --report-on=lib
+
+      - name: Upload coverage to codecov
+        run: curl -s https://codecov.io/bash | bash
+
