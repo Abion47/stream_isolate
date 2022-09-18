@@ -122,7 +122,7 @@ void main() {
     test('Bidirectional streams propagate errors correctly', () async {
       final isolate = await StreamIsolate.spawnBidirectional<String, int>(
           doBidirectionalWorkWithError);
-      sendMessagesInOrder(isolate.inputSink, ['a', 'b', 'c', 'd', 'e']);
+      sendMessagesInOrder(isolate.inputSink, ['a', 'b', 'c']);
 
       expect(
         isolate.stream,
