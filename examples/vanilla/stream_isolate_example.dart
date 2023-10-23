@@ -18,7 +18,7 @@ void main() async {
   print('Done');
 }
 
-Stream<int> doWork(_) async* {
+Stream<int> doWork(dynamic _) async* {
   yield 0;
   await wait(100);
   yield 1;
@@ -32,7 +32,7 @@ Stream<int> doWork(_) async* {
   yield 5;
 }
 
-Stream<int> doWorkWithError(_) async* {
+Stream<int> doWorkWithError(dynamic _) async* {
   yield 0;
   await wait(100);
   yield 1;
@@ -53,7 +53,7 @@ void sendMessages(BidirectionalStreamIsolate<String, int> isolate) async {
   isolate.send('e');
 }
 
-Stream<int> doWorkWithListener(Stream<String> inc, _) async* {
+Stream<int> doWorkWithListener(Stream<String> inc, dynamic _) async* {
   inc.listen((msg) => print('isolate: $msg'));
 
   yield 0;

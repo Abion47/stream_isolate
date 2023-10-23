@@ -68,12 +68,12 @@ Stream<int> doWorkWithError(Object? arguments) async* {
 }
 
 Future<void> sendMessagesInOrder<T>(
-  StreamSink<T> sink,
   List<T> messages,
+  void Function(T) sender,
 ) async {
   for (final msg in messages) {
     await wait(100);
-    sink.add(msg);
+    sender(msg);
   }
 }
 
@@ -115,6 +115,8 @@ Stream<int> doBidirectionalWorkWithError(
   incoming.listen((msg) {
     if (msg == 'c') throw StateError('some error');
     responseStream.add(msg.hashCode);
+  }, onError: (Object e) {
+    throw e;
   });
   return responseStream.stream;
 }

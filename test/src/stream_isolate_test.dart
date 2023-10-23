@@ -1,4 +1,4 @@
-import 'dart:async';
+@Timeout(Duration(seconds: 2))
 
 import 'package:stream_isolate/stream_isolate.dart';
 import 'package:test/test.dart';
@@ -45,18 +45,22 @@ void main() {
     });
 
     test('Broadcast isolates stream to all listeners', () async {
-      final expectedResponses = [1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5];
-      final responses = StreamController<int>.broadcast();
+      final expectedResponses = [1, 2, 3, 4, 5];
+      final responses = <int>[];
 
       final isolate = await StreamIsolate.spawn<int>(
         doWorkInt,
         broadcast: true,
       );
-      isolate.stream.listen((event) => responses.add(event));
-      isolate.stream.listen((event) => responses.add(event));
+      isolate.stream.listen((event) => event);
       isolate.stream.listen((event) => responses.add(event));
 
-      expect(responses.stream, emitsInOrder(expectedResponses));
+      await expectLater(
+        isolate.stream,
+        emitsInOrder(<dynamic>[...expectedResponses, emitsDone]),
+      );
+
+      expect(responses, orderedEquals(expectedResponses));
     });
 
     test('Streams propagate errors correctly', () async {
@@ -81,7 +85,9 @@ void main() {
     test('Start isolate sending strings and receiving ints', () async {
       final isolate = await StreamIsolate.spawnBidirectional<String, int>(
           doBidirectionalWorkStringInt);
-      sendMessagesInOrder(isolate.inputSink, ['a', 'b', 'c', 'd', 'e']);
+      sendMessagesInOrder<String>(['a', 'b', 'c', 'd', 'e'], (msg) {
+        isolate.send(msg);
+      });
 
       expect(
         isolate.stream,
@@ -102,7 +108,9 @@ void main() {
       final isolate =
           await StreamIsolate.spawnBidirectional<String, CustomType>(
               doBidirectionalWorkStringCustomType);
-      sendMessagesInOrder(isolate.inputSink, ['a', 'b', 'c', 'd', 'e']);
+      sendMessagesInOrder<String>(['a', 'b', 'c', 'd', 'e'], (msg) {
+        isolate.send(msg);
+      });
 
       expect(
         isolate.stream,
@@ -119,10 +127,41 @@ void main() {
       );
     });
 
+    test('Broadcast isolates stream to all listeners', () async {
+      final expectedResponses = [
+        'a'.hashCode,
+        'b'.hashCode,
+        'c'.hashCode,
+        'd'.hashCode,
+        'e'.hashCode,
+      ];
+      final responses = <int>[];
+
+      final isolate = await StreamIsolate.spawnBidirectional<String, int>(
+        doBidirectionalWorkStringInt,
+        broadcast: true,
+      );
+      isolate.stream.listen((event) => event);
+      isolate.stream.listen((event) => responses.add(event));
+
+      sendMessagesInOrder<String>(['a', 'b', 'c', 'd', 'e'], (msg) {
+        isolate.send(msg);
+      });
+
+      await expectLater(
+        isolate.stream,
+        emitsInOrder(<dynamic>[...expectedResponses, emitsDone]),
+      );
+
+      expect(responses, orderedEquals(expectedResponses));
+    });
+
     test('Bidirectional streams propagate errors correctly', () async {
       final isolate = await StreamIsolate.spawnBidirectional<String, int>(
           doBidirectionalWorkWithError);
-      sendMessagesInOrder(isolate.inputSink, ['a', 'b', 'c']);
+      sendMessagesInOrder<String>(['a', 'b', 'c'], (msg) {
+        isolate.send(msg);
+      });
 
       expect(
         isolate.stream,
