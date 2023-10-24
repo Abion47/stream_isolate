@@ -43,6 +43,18 @@ void main() {
         ),
       );
     });
+    test('Start isolate receiving ints with initial argument', () async {
+      final isolate = await StreamIsolate.spawnWithArgument<int, int>(
+        doWorkIntWithArg,
+        argument: 1,
+      );
+      expect(
+        isolate.stream,
+        emitsInOrder(
+          <dynamic>[2, 3, 4, 5, 6, emitsDone],
+        ),
+      );
+    });
 
     test('Broadcast isolates stream to all listeners', () async {
       final expectedResponses = [1, 2, 3, 4, 5];
@@ -83,7 +95,7 @@ void main() {
 
   group('Bidirectional Isolates', () {
     test('Start isolate sending strings and receiving ints', () async {
-      final isolate = await StreamIsolate.spawnBidirectional<String, int>(
+      final isolate = await BidirectionalStreamIsolate.spawn<String, int>(
           doBidirectionalWorkStringInt);
       sendMessagesInOrder<String>(['a', 'b', 'c', 'd', 'e'], (msg) {
         isolate.send(msg);
@@ -106,7 +118,7 @@ void main() {
 
     test('Start isolate sending strings and receiving custom types', () async {
       final isolate =
-          await StreamIsolate.spawnBidirectional<String, CustomType>(
+          await BidirectionalStreamIsolate.spawn<String, CustomType>(
               doBidirectionalWorkStringCustomType);
       sendMessagesInOrder<String>(['a', 'b', 'c', 'd', 'e'], (msg) {
         isolate.send(msg);
@@ -127,6 +139,33 @@ void main() {
       );
     });
 
+    test(
+        'Start isolate sending strings and receiving ints with initial argument',
+        () async {
+      final isolate =
+          await BidirectionalStreamIsolate.spawnWithArgument<String, int, int>(
+        doBidirectionalWorkStringIntWithArgument,
+        argument: 1,
+      );
+      sendMessagesInOrder<String>(['a', 'b', 'c', 'd', 'e'], (msg) {
+        isolate.send(msg);
+      });
+
+      expect(
+        isolate.stream,
+        emitsInOrder(
+          <dynamic>[
+            'a'.hashCode + 1,
+            'b'.hashCode + 1,
+            'c'.hashCode + 1,
+            'd'.hashCode + 1,
+            'e'.hashCode + 1,
+            emitsDone,
+          ],
+        ),
+      );
+    });
+
     test('Broadcast isolates stream to all listeners', () async {
       final expectedResponses = [
         'a'.hashCode,
@@ -137,7 +176,7 @@ void main() {
       ];
       final responses = <int>[];
 
-      final isolate = await StreamIsolate.spawnBidirectional<String, int>(
+      final isolate = await BidirectionalStreamIsolate.spawn<String, int>(
         doBidirectionalWorkStringInt,
         broadcast: true,
       );
@@ -157,7 +196,7 @@ void main() {
     });
 
     test('Bidirectional streams propagate errors correctly', () async {
-      final isolate = await StreamIsolate.spawnBidirectional<String, int>(
+      final isolate = await BidirectionalStreamIsolate.spawn<String, int>(
           doBidirectionalWorkWithError);
       sendMessagesInOrder<String>(['a', 'b', 'c'], (msg) {
         isolate.send(msg);

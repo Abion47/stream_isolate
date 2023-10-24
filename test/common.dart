@@ -2,6 +2,16 @@ import 'dart:async';
 
 Future<void> wait(int ms) => Future.delayed(Duration(milliseconds: ms));
 
+Future<void> sendMessagesInOrder<T>(
+  List<T> messages,
+  void Function(T) sender,
+) async {
+  for (final msg in messages) {
+    await wait(100);
+    sender(msg);
+  }
+}
+
 class CustomType {
   final int a;
   final String b;
@@ -19,7 +29,7 @@ class CustomType {
   int get hashCode => a.hashCode ^ b.hashCode ^ c.hashCode;
 }
 
-Stream<int> doWorkInt(Object? arguments) async* {
+Stream<int> doWorkInt() async* {
   await wait(100);
   yield 1;
   await wait(100);
@@ -32,7 +42,20 @@ Stream<int> doWorkInt(Object? arguments) async* {
   yield 5;
 }
 
-Stream<String> doWorkString(Object? arguments) async* {
+Stream<int> doWorkIntWithArg(int x) async* {
+  await wait(100);
+  yield 1 + x;
+  await wait(100);
+  yield 2 + x;
+  await wait(100);
+  yield 3 + x;
+  await wait(100);
+  yield 4 + x;
+  await wait(100);
+  yield 5 + x;
+}
+
+Stream<String> doWorkString() async* {
   await wait(100);
   yield 'a';
   await wait(100);
@@ -45,7 +68,7 @@ Stream<String> doWorkString(Object? arguments) async* {
   yield 'e';
 }
 
-Stream<CustomType> doWorkCustomType(Object? arguments) async* {
+Stream<CustomType> doWorkCustomType() async* {
   await wait(100);
   yield const CustomType(1, 'a', false);
   await wait(100);
@@ -58,7 +81,7 @@ Stream<CustomType> doWorkCustomType(Object? arguments) async* {
   yield const CustomType(5, 'e', true);
 }
 
-Stream<int> doWorkWithError(Object? arguments) async* {
+Stream<int> doWorkWithError() async* {
   await wait(100);
   yield 1;
   await wait(100);
@@ -67,19 +90,8 @@ Stream<int> doWorkWithError(Object? arguments) async* {
   throw StateError('some error');
 }
 
-Future<void> sendMessagesInOrder<T>(
-  List<T> messages,
-  void Function(T) sender,
-) async {
-  for (final msg in messages) {
-    await wait(100);
-    sender(msg);
-  }
-}
-
 Stream<int> doBidirectionalWorkStringInt(
   Stream<String> incoming,
-  Object? arguments,
 ) {
   final responseStream = StreamController<int>();
   incoming.listen((msg) {
@@ -92,9 +104,23 @@ Stream<int> doBidirectionalWorkStringInt(
   return responseStream.stream;
 }
 
+Stream<int> doBidirectionalWorkStringIntWithArgument(
+  Stream<String> incoming,
+  int argument,
+) {
+  final responseStream = StreamController<int>();
+  incoming.listen((msg) {
+    responseStream.add(msg.hashCode + argument);
+    if (msg == 'e') {
+      responseStream.close();
+    }
+  });
+
+  return responseStream.stream;
+}
+
 Stream<CustomType> doBidirectionalWorkStringCustomType(
   Stream<String> incoming,
-  Object? arguments,
 ) {
   final responseStream = StreamController<CustomType>();
   var index = 1;
@@ -109,7 +135,6 @@ Stream<CustomType> doBidirectionalWorkStringCustomType(
 
 Stream<int> doBidirectionalWorkWithError(
   Stream<String> incoming,
-  Object? arguments,
 ) {
   final responseStream = StreamController<int>();
   incoming.listen((msg) {

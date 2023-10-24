@@ -1,19 +1,22 @@
 import 'dart:async';
 import 'dart:isolate';
 
-abstract class _StreamIsolateBase<T> {
+abstract class _StreamIsolateBase<TStream, TArg> {
   _StreamIsolateBase._(this._innerIsolate)
-      : _controller = StreamController<T>();
+      : _controller = StreamController<TStream>(),
+        _closingNotifier = Completer();
   _StreamIsolateBase._broadcast(this._innerIsolate)
-      : _controller = StreamController<T>.broadcast();
+      : _controller = StreamController<TStream>.broadcast(),
+        _closingNotifier = Completer();
 
   final Isolate _innerIsolate;
-  final StreamController<T> _controller;
+  final StreamController<TStream> _controller;
+  final Completer<void> _closingNotifier;
 
-  Stream<T> get stream => _controller.stream;
+  Stream<TStream> get stream => _controller.stream;
 
   List<ReceivePort> _portsToClose = [];
-  List<StreamSubscription> _streamsToClose = [];
+  List<StreamSubscription<dynamic>> _streamsToClose = [];
 
   /// Sends the kill command to the isolate and closes all streams associated
   /// with the connection.
@@ -33,7 +36,14 @@ abstract class _StreamIsolateBase<T> {
       _controller.close();
       _innerIsolate.kill();
     }
+
+    _closingNotifier.complete();
   }
+
+  /// Returns a future that completes when the isolate closes for any reason. Does
+  /// not return any values or result in an error if the isolate was terminated
+  /// abnormally.
+  Future<void> getIsClosedFuture() => _closingNotifier.future;
 
   /// Control port used to send control messages to the isolate.
   ///
@@ -284,7 +294,7 @@ abstract class _StreamIsolateBase<T> {
   String toString() => _innerIsolate.toString();
 }
 
-class StreamIsolate<T> extends _StreamIsolateBase<T> {
+class StreamIsolate<TStream, TArg> extends _StreamIsolateBase<TStream, TArg> {
   StreamIsolate._(Isolate isolate) : super._(isolate);
   StreamIsolate._broadcast(Isolate isolate) : super._broadcast(isolate);
 
@@ -303,7 +313,7 @@ class StreamIsolate<T> extends _StreamIsolateBase<T> {
   /// function must not be the value of a function expression or an instance
   /// method tear-off.
   ///
-  /// The function must return a `Stream<T>` to publish messages to the main
+  /// The function must return a `Stream<TStream>` to publish messages to the main
   /// thread. (This is most easily accomplished with an `async*` generator.)
   /// **Note that messages sent by the spawned isolate before the main isolate
   /// has listened to the stream may not be received by the main isolate.**
@@ -333,9 +343,8 @@ class StreamIsolate<T> extends _StreamIsolateBase<T> {
   ///
   /// One can expect the base memory overhead of an isolate to be in the order
   /// of 30 kb.
-  static Future<StreamIsolate<T>> spawn<T>(
-    Stream<T> Function(Object? arguments) entryPoint, {
-    Object? argument,
+  static Future<StreamIsolate<TStream, Object?>> spawn<TStream>(
+    Stream<TStream> Function() entryPoint, {
     bool paused = false,
     bool errorsAreFatal = true,
     String? debugName,
@@ -345,10 +354,10 @@ class StreamIsolate<T> extends _StreamIsolateBase<T> {
     final errorPort = ReceivePort();
     final closePort = ReceivePort();
 
-    late StreamIsolate<T> streamIsolate;
+    late StreamIsolate<TStream, Object?> streamIsolate;
 
     final isolateToMainListener = isolateToMain.listen((Object? message) {
-      streamIsolate._controller.sink.add(message as T);
+      streamIsolate._controller.sink.add(message as TStream);
     });
 
     final errorListener = errorPort.listen((dynamic message) {
@@ -360,8 +369,8 @@ class StreamIsolate<T> extends _StreamIsolateBase<T> {
     });
 
     final isolate = await Isolate.spawn<List<Object?>>(
-      _isolateEntryPoint<T>,
-      [entryPoint, isolateToMain.sendPort, argument],
+      _isolateEntryPoint<TStream>,
+      [entryPoint, isolateToMain.sendPort],
       paused: paused,
       errorsAreFatal: errorsAreFatal,
       debugName: debugName,
@@ -370,9 +379,9 @@ class StreamIsolate<T> extends _StreamIsolateBase<T> {
     );
 
     if (broadcast) {
-      streamIsolate = StreamIsolate<T>._broadcast(isolate);
+      streamIsolate = StreamIsolate<TStream, Object?>._broadcast(isolate);
     } else {
-      streamIsolate = StreamIsolate<T>._(isolate);
+      streamIsolate = StreamIsolate<TStream, Object?>._(isolate);
     }
 
     streamIsolate._portsToClose = [
@@ -389,10 +398,122 @@ class StreamIsolate<T> extends _StreamIsolateBase<T> {
     return streamIsolate;
   }
 
-  static void _isolateEntryPoint<T>(List<Object?> args) async {
-    final entryPoint = args[0] as Stream<T> Function(dynamic);
+  static void _isolateEntryPoint<TStream>(List<Object?> args) async {
+    final entryPoint = args[0] as Stream<TStream> Function();
     final isolateToMain = args[1] as SendPort;
-    final argument = args[2];
+
+    final stream = entryPoint();
+    await for (final message in stream) {
+      isolateToMain.send(message);
+    }
+  }
+
+  /// Creates and spawns an isolate that shares the same code as the current
+  /// isolate.
+  ///
+  /// The argument `entryPoint` specifies the initial function to call in the
+  /// spawned isolate. The entry-point function is invoked in the new isolate
+  /// with `message` as the only argument.
+  ///
+  /// The function must be a top-level function or a static method that can be
+  /// called with a single argument, that is, a compile-time constant function
+  /// value which accepts at least one positional parameter and has at most one
+  /// required positional parameter. The function may accept any number of optional
+  /// parameters, as long as it can be called with just a single argument. The
+  /// function must not be the value of a function expression or an instance
+  /// method tear-off.
+  ///
+  /// The function must return a `Stream<TStream>` to publish messages to the main
+  /// thread. (This is most easily accomplished with an `async*` generator.)
+  /// **Note that messages sent by the spawned isolate before the main isolate
+  /// has listened to the stream may not be received by the main isolate.**
+  ///
+  /// If the paused parameter is set to true, the isolate will start up in a
+  /// paused state, just before calling the entryPoint function with the message,
+  /// as if by an initial call of isolate.pause(isolate.pauseCapability). To
+  /// resume the isolate, call isolate.resume(isolate.pauseCapability).
+  ///
+  /// If the errorsAreFatal, onExit and/or onError parameters are provided, the
+  /// isolate will act as if, respectively, setErrorsFatal, addOnExitListener
+  /// and addErrorListener were called with the corresponding parameter and was
+  /// processed before the isolate starts running.
+  ///
+  /// If debugName is provided, the spawned Isolate will be identifiable by this
+  /// name in debuggers and logging.
+  ///
+  /// If errorsAreFatal is omitted, the platform may choose a default behavior
+  /// or inherit the current isolate's behavior.
+  ///
+  /// You can also call the setErrorsFatal, addOnExitListener and addErrorListener
+  /// methods on the returned isolate, but unless the isolate was started as paused,
+  /// it may already have terminated before those methods can complete.
+  ///
+  /// Returns a future which will complete with a StreamIsolate instance if the
+  /// spawning succeeded. It will complete with an error otherwise.
+  ///
+  /// One can expect the base memory overhead of an isolate to be in the order
+  /// of 30 kb.
+  static Future<StreamIsolate<TStream, TArg>> spawnWithArgument<TStream, TArg>(
+    Stream<TStream> Function(TArg arguments) entryPoint, {
+    required TArg argument,
+    bool paused = false,
+    bool errorsAreFatal = true,
+    String? debugName,
+    bool broadcast = false,
+  }) async {
+    final isolateToMain = ReceivePort();
+    final errorPort = ReceivePort();
+    final closePort = ReceivePort();
+
+    late StreamIsolate<TStream, TArg> streamIsolate;
+
+    final isolateToMainListener = isolateToMain.listen((Object? message) {
+      streamIsolate._controller.sink.add(message as TStream);
+    });
+
+    final errorListener = errorPort.listen((dynamic message) {
+      streamIsolate._controller.addError(message as Object);
+    });
+
+    final closeListener = closePort.listen((dynamic message) async {
+      await streamIsolate.close();
+    });
+
+    final isolate = await Isolate.spawn<List<Object?>>(
+      _isolateEntryPointWithArg<TStream, TArg>,
+      [entryPoint, isolateToMain.sendPort, argument],
+      paused: paused,
+      errorsAreFatal: errorsAreFatal,
+      debugName: debugName,
+      onError: errorPort.sendPort,
+      onExit: closePort.sendPort,
+    );
+
+    if (broadcast) {
+      streamIsolate = StreamIsolate<TStream, TArg>._broadcast(isolate);
+    } else {
+      streamIsolate = StreamIsolate<TStream, TArg>._(isolate);
+    }
+
+    streamIsolate._portsToClose = [
+      isolateToMain,
+      errorPort,
+      closePort,
+    ];
+    streamIsolate._streamsToClose = [
+      isolateToMainListener,
+      errorListener,
+      closeListener,
+    ];
+
+    return streamIsolate;
+  }
+
+  static void _isolateEntryPointWithArg<TStream, TArg>(
+      List<Object?> args) async {
+    final entryPoint = args[0] as Stream<TStream> Function(TArg);
+    final isolateToMain = args[1] as SendPort;
+    final argument = args[2] as TArg;
 
     final stream = entryPoint(argument);
     await for (final message in stream) {
@@ -420,7 +541,7 @@ class StreamIsolate<T> extends _StreamIsolateBase<T> {
   /// by the main isolate before the spawned isolate has listened to the stream
   /// may not be received by the spawned isolate.**
   ///
-  /// The function must return a `Stream<T>` to publish messages to the main thread.
+  /// The function must return a `Stream<TStream>` to publish messages to the main thread.
   /// (This is most easily accomplished with an `async*` generator.) **Note that
   /// messages sent by the spawned isolate before the main isolate has listened
   /// to the stream may not be received by the main isolate.**
@@ -450,32 +571,170 @@ class StreamIsolate<T> extends _StreamIsolateBase<T> {
   ///
   /// One can expect the base memory overhead of an isolate to be in the order
   /// of 30 kb.
-  static Future<BidirectionalStreamIsolate<TIn, TOut>>
+  static Future<BidirectionalStreamIsolate<TIn, TOut, Object?>>
       spawnBidirectional<TIn, TOut>(
-    Stream<TOut> Function(Stream<TIn> messageStream, Object? arguments)
+    Stream<TOut> Function(Stream<TIn> messageStream) entryPoint, {
+    bool paused = false,
+    bool errorsAreFatal = true,
+    String? debugName,
+    bool broadcast = false,
+  }) async {
+    return BidirectionalStreamIsolate.spawn<TIn, TOut>(
+      entryPoint,
+      paused: paused,
+      errorsAreFatal: errorsAreFatal,
+      debugName: debugName,
+      broadcast: broadcast,
+    );
+  }
+
+  /// Creates and spawns an isolate that shares the same code as the current
+  /// isolate.
+  ///
+  /// The argument `entryPoint` specifies the initial function to call in the
+  /// spawned isolate. The entry-point function is invoked in the new isolate
+  /// with a stream of incoming messages from the main isolate as the first
+  /// argument and `message` as the second argument.
+  ///
+  /// The function must be a top-level function or a static method, that is, a
+  /// compile-time constant function value which accepts at least two positional
+  /// parameters and has at most two required positional parameters. The function
+  /// may accept any number of optional parameters, as long as it can be called
+  /// with just two arguments. The function must not be the value of a function
+  /// expression or an instance method tear-off.
+  ///
+  /// Within the function, the passed stream should be listened to in order to
+  /// receive messages coming from the main isolate. **Note that messages sent
+  /// by the main isolate before the spawned isolate has listened to the stream
+  /// may not be received by the spawned isolate.**
+  ///
+  /// The function must return a `Stream<TStream>` to publish messages to the main thread.
+  /// (This is most easily accomplished with an `async*` generator.) **Note that
+  /// messages sent by the spawned isolate before the main isolate has listened
+  /// to the stream may not be received by the main isolate.**
+  ///
+  /// If the paused parameter is set to true, the isolate will start up in a paused
+  /// state, just before calling the entryPoint function with the message, as if
+  /// by an initial call of isolate.pause(isolate.pauseCapability). To resume the
+  /// isolate, call isolate.resume(isolate.pauseCapability).
+  ///
+  /// If the errorsAreFatal, onExit and/or onError parameters are provided, the
+  /// isolate will act as if, respectively, setErrorsFatal, addOnExitListener and
+  /// addErrorListener were called with the corresponding parameter and was
+  /// processed before the isolate starts running.
+  ///
+  /// If debugName is provided, the spawned Isolate will be identifiable by this
+  /// name in debuggers and logging.
+  ///
+  /// If errorsAreFatal is omitted, the platform may choose a default behavior
+  /// or inherit the current isolate's behavior.
+  ///
+  /// You can also call the setErrorsFatal, addOnExitListener and addErrorListener
+  /// methods on the returned isolate, but unless the isolate was started as paused,
+  /// it may already have terminated before those methods can complete.
+  ///
+  /// Returns a future which will complete with a StreamIsolate instance if the
+  /// spawning succeeded. It will complete with an error otherwise.
+  ///
+  /// One can expect the base memory overhead of an isolate to be in the order
+  /// of 30 kb.
+  static Future<BidirectionalStreamIsolate<TIn, TOut, TArg>>
+      spawnBidirectionalWithArgument<TIn, TOut, TArg>(
+    Stream<TOut> Function(Stream<TIn> messageStream, TArg arguments)
         entryPoint, {
-    Object? argument,
+    required TArg argument,
+    bool paused = false,
+    bool errorsAreFatal = true,
+    String? debugName,
+    bool broadcast = false,
+  }) async {
+    return BidirectionalStreamIsolate.spawnWithArgument<TIn, TOut, TArg>(
+      entryPoint,
+      argument: argument,
+      paused: paused,
+      errorsAreFatal: errorsAreFatal,
+      debugName: debugName,
+      broadcast: broadcast,
+    );
+  }
+}
+
+class BidirectionalStreamIsolate<TIn, TOut, TArg>
+    extends StreamIsolate<TOut, TArg> {
+  BidirectionalStreamIsolate._(Isolate isolate)
+      : _input = StreamController(),
+        super._(isolate);
+
+  BidirectionalStreamIsolate._broadcast(Isolate isolate)
+      : _input = StreamController(),
+        super._broadcast(isolate);
+
+  final StreamController<TIn> _input;
+  StreamSink<TIn> get inputSink => _input.sink;
+
+  /// Creates and spawns an isolate that shares the same code as the current
+  /// isolate.
+  ///
+  /// The argument `entryPoint` specifies the initial function to call in the
+  /// spawned isolate. The entry-point function is invoked in the new isolate
+  /// with a stream of incoming messages from the main isolate as the first
+  /// argument and `message` as the second argument.
+  ///
+  /// The function must be a top-level function or a static method, that is, a
+  /// compile-time constant function value which accepts at least two positional
+  /// parameters and has at most two required positional parameters. The function
+  /// may accept any number of optional parameters, as long as it can be called
+  /// with just two arguments. The function must not be the value of a function
+  /// expression or an instance method tear-off.
+  ///
+  /// Within the function, the passed stream should be listened to in order to
+  /// receive messages coming from the main isolate. **Note that messages sent
+  /// by the main isolate before the spawned isolate has listened to the stream
+  /// may not be received by the spawned isolate.**
+  ///
+  /// The function must return a `Stream<TStream>` to publish messages to the main thread.
+  /// (This is most easily accomplished with an `async*` generator.) **Note that
+  /// messages sent by the spawned isolate before the main isolate has listened
+  /// to the stream may not be received by the main isolate.**
+  ///
+  /// If the paused parameter is set to true, the isolate will start up in a paused
+  /// state, just before calling the entryPoint function with the message, as if
+  /// by an initial call of isolate.pause(isolate.pauseCapability). To resume the
+  /// isolate, call isolate.resume(isolate.pauseCapability).
+  ///
+  /// If the errorsAreFatal, onExit and/or onError parameters are provided, the
+  /// isolate will act as if, respectively, setErrorsFatal, addOnExitListener and
+  /// addErrorListener were called with the corresponding parameter and was
+  /// processed before the isolate starts running.
+  ///
+  /// If debugName is provided, the spawned Isolate will be identifiable by this
+  /// name in debuggers and logging.
+  ///
+  /// If errorsAreFatal is omitted, the platform may choose a default behavior
+  /// or inherit the current isolate's behavior.
+  ///
+  /// You can also call the setErrorsFatal, addOnExitListener and addErrorListener
+  /// methods on the returned isolate, but unless the isolate was started as paused,
+  /// it may already have terminated before those methods can complete.
+  ///
+  /// Returns a future which will complete with a StreamIsolate instance if the
+  /// spawning succeeded. It will complete with an error otherwise.
+  ///
+  /// One can expect the base memory overhead of an isolate to be in the order
+  /// of 30 kb.
+  static Future<BidirectionalStreamIsolate<TIn, TOut, Object?>>
+      spawn<TIn, TOut>(
+    Stream<TOut> Function(Stream<TIn> messageStream) entryPoint, {
     bool paused = false,
     bool errorsAreFatal = true,
     String? debugName,
     bool broadcast = false,
   }) async {
     final isolateToMain = ReceivePort();
+    final errorPort = ReceivePort();
+    final closePort = ReceivePort();
 
-    final isolate = await Isolate.spawn<List<Object?>>(
-      _isolateEntryPointBidirectional<TIn, TOut>,
-      [entryPoint, isolateToMain.sendPort, argument],
-      paused: paused,
-      errorsAreFatal: errorsAreFatal,
-      debugName: debugName,
-    );
-
-    BidirectionalStreamIsolate<TIn, TOut> streamIsolate;
-    if (broadcast) {
-      streamIsolate = BidirectionalStreamIsolate<TIn, TOut>._broadcast(isolate);
-    } else {
-      streamIsolate = BidirectionalStreamIsolate<TIn, TOut>._(isolate);
-    }
+    late BidirectionalStreamIsolate<TIn, TOut, Object?> streamIsolate;
 
     final isolateToMainListener = isolateToMain.listen((dynamic message) {
       if (message is SendPort) {
@@ -488,17 +747,30 @@ class StreamIsolate<T> extends _StreamIsolateBase<T> {
       }
     });
 
-    final errorPort = ReceivePort();
-    isolate.addErrorListener(errorPort.sendPort);
     final errorListener = errorPort.listen((dynamic message) {
       streamIsolate._controller.addError(message as Object);
     });
 
-    final closePort = ReceivePort();
-    isolate.addOnExitListener(closePort.sendPort);
     final closeListener = closePort.listen((dynamic message) {
       streamIsolate.close();
     });
+
+    final isolate = await Isolate.spawn<List<Object?>>(
+      _isolateEntryPoint<TIn, TOut>,
+      [entryPoint, isolateToMain.sendPort],
+      paused: paused,
+      errorsAreFatal: errorsAreFatal,
+      debugName: debugName,
+      onError: errorPort.sendPort,
+      onExit: closePort.sendPort,
+    );
+
+    if (broadcast) {
+      streamIsolate =
+          BidirectionalStreamIsolate<TIn, TOut, Object?>._broadcast(isolate);
+    } else {
+      streamIsolate = BidirectionalStreamIsolate<TIn, TOut, Object?>._(isolate);
+    }
 
     streamIsolate._portsToClose = [
       isolateToMain,
@@ -514,12 +786,153 @@ class StreamIsolate<T> extends _StreamIsolateBase<T> {
     return streamIsolate;
   }
 
-  static void _isolateEntryPointBidirectional<TIn, TOut>(
+  static void _isolateEntryPoint<TIn, TOut>(
     List<Object?> args,
   ) async {
-    final entryPoint = args[0] as Stream<TOut> Function(Stream<TIn>, dynamic);
+    final entryPoint = args[0] as Stream<TOut> Function(Stream<TIn>);
     final isolateToMain = args[1] as SendPort;
-    final argument = args[2];
+
+    final mainToIsolate = ReceivePort();
+    isolateToMain.send(mainToIsolate.sendPort);
+
+    final controller = StreamController<TIn>();
+    mainToIsolate.listen((dynamic message) {
+      controller.add(message as TIn);
+    });
+
+    try {
+      final stream = entryPoint(controller.stream);
+      await for (final message in stream) {
+        isolateToMain.send(message);
+      }
+    } finally {
+      mainToIsolate.close();
+      controller.close();
+    }
+  }
+
+  /// Creates and spawns an isolate that shares the same code as the current
+  /// isolate.
+  ///
+  /// The argument `entryPoint` specifies the initial function to call in the
+  /// spawned isolate. The entry-point function is invoked in the new isolate
+  /// with a stream of incoming messages from the main isolate as the first
+  /// argument and `message` as the second argument.
+  ///
+  /// The function must be a top-level function or a static method, that is, a
+  /// compile-time constant function value which accepts at least two positional
+  /// parameters and has at most two required positional parameters. The function
+  /// may accept any number of optional parameters, as long as it can be called
+  /// with just two arguments. The function must not be the value of a function
+  /// expression or an instance method tear-off.
+  ///
+  /// Within the function, the passed stream should be listened to in order to
+  /// receive messages coming from the main isolate. **Note that messages sent
+  /// by the main isolate before the spawned isolate has listened to the stream
+  /// may not be received by the spawned isolate.**
+  ///
+  /// The function must return a `Stream<TStream>` to publish messages to the main thread.
+  /// (This is most easily accomplished with an `async*` generator.) **Note that
+  /// messages sent by the spawned isolate before the main isolate has listened
+  /// to the stream may not be received by the main isolate.**
+  ///
+  /// If the paused parameter is set to true, the isolate will start up in a paused
+  /// state, just before calling the entryPoint function with the message, as if
+  /// by an initial call of isolate.pause(isolate.pauseCapability). To resume the
+  /// isolate, call isolate.resume(isolate.pauseCapability).
+  ///
+  /// If the errorsAreFatal, onExit and/or onError parameters are provided, the
+  /// isolate will act as if, respectively, setErrorsFatal, addOnExitListener and
+  /// addErrorListener were called with the corresponding parameter and was
+  /// processed before the isolate starts running.
+  ///
+  /// If debugName is provided, the spawned Isolate will be identifiable by this
+  /// name in debuggers and logging.
+  ///
+  /// If errorsAreFatal is omitted, the platform may choose a default behavior
+  /// or inherit the current isolate's behavior.
+  ///
+  /// You can also call the setErrorsFatal, addOnExitListener and addErrorListener
+  /// methods on the returned isolate, but unless the isolate was started as paused,
+  /// it may already have terminated before those methods can complete.
+  ///
+  /// Returns a future which will complete with a StreamIsolate instance if the
+  /// spawning succeeded. It will complete with an error otherwise.
+  ///
+  /// One can expect the base memory overhead of an isolate to be in the order
+  /// of 30 kb.
+  static Future<BidirectionalStreamIsolate<TIn, TOut, TArg>>
+      spawnWithArgument<TIn, TOut, TArg>(
+    Stream<TOut> Function(Stream<TIn> messageStream, TArg arguments)
+        entryPoint, {
+    required TArg argument,
+    bool paused = false,
+    bool errorsAreFatal = true,
+    String? debugName,
+    bool broadcast = false,
+  }) async {
+    final isolateToMain = ReceivePort();
+    final errorPort = ReceivePort();
+    final closePort = ReceivePort();
+
+    late BidirectionalStreamIsolate<TIn, TOut, TArg> streamIsolate;
+
+    final isolateToMainListener = isolateToMain.listen((dynamic message) {
+      if (message is SendPort) {
+        final mainToIsolateSend = message;
+        streamIsolate._input.stream.listen((event) {
+          mainToIsolateSend.send(event);
+        });
+      } else {
+        streamIsolate._controller.sink.add(message as TOut);
+      }
+    });
+
+    final errorListener = errorPort.listen((dynamic message) {
+      streamIsolate._controller.addError(message as Object);
+    });
+
+    final closeListener = closePort.listen((dynamic message) {
+      streamIsolate.close();
+    });
+
+    final isolate = await Isolate.spawn<List<Object?>>(
+      _isolateEntryPointWithArg<TIn, TOut, TArg>,
+      [entryPoint, isolateToMain.sendPort, argument],
+      paused: paused,
+      errorsAreFatal: errorsAreFatal,
+      debugName: debugName,
+      onError: errorPort.sendPort,
+      onExit: closePort.sendPort,
+    );
+
+    if (broadcast) {
+      streamIsolate =
+          BidirectionalStreamIsolate<TIn, TOut, TArg>._broadcast(isolate);
+    } else {
+      streamIsolate = BidirectionalStreamIsolate<TIn, TOut, TArg>._(isolate);
+    }
+
+    streamIsolate._portsToClose = [
+      isolateToMain,
+      errorPort,
+      closePort,
+    ];
+    streamIsolate._streamsToClose = [
+      isolateToMainListener,
+      errorListener,
+      closeListener,
+    ];
+
+    return streamIsolate;
+  }
+
+  static void _isolateEntryPointWithArg<TIn, TOut, TArg>(
+    List<Object?> args,
+  ) async {
+    final entryPoint = args[0] as Stream<TOut> Function(Stream<TIn>, TArg);
+    final isolateToMain = args[1] as SendPort;
+    final argument = args[2] as TArg;
 
     final mainToIsolate = ReceivePort();
     isolateToMain.send(mainToIsolate.sendPort);
@@ -539,19 +952,6 @@ class StreamIsolate<T> extends _StreamIsolateBase<T> {
       controller.close();
     }
   }
-}
-
-class BidirectionalStreamIsolate<TIn, TOut> extends StreamIsolate<TOut> {
-  BidirectionalStreamIsolate._(Isolate isolate)
-      : _input = StreamController(),
-        super._(isolate);
-
-  BidirectionalStreamIsolate._broadcast(Isolate isolate)
-      : _input = StreamController(),
-        super._broadcast(isolate);
-
-  final StreamController<TIn> _input;
-  StreamSink<TIn> get inputSink => _input.sink;
 
   void send(TIn message) {
     _input.add(message);

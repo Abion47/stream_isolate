@@ -7,6 +7,7 @@ Future<void> wait(int ms) => Future.delayed(Duration(milliseconds: ms));
 void main() async {
   final streamIsolate =
       await StreamIsolate.spawnBidirectional<String, int>(doWorkWithListener);
+
   sendMessages(streamIsolate);
 
   // final streamIsolate = await StreamIsolate.spawn<int>(doWork);
@@ -18,7 +19,7 @@ void main() async {
   print('Done');
 }
 
-Stream<int> doWork(dynamic _) async* {
+Stream<int> doWork() async* {
   yield 0;
   await wait(100);
   yield 1;
@@ -32,7 +33,7 @@ Stream<int> doWork(dynamic _) async* {
   yield 5;
 }
 
-Stream<int> doWorkWithError(dynamic _) async* {
+Stream<int> doWorkWithError() async* {
   yield 0;
   await wait(100);
   yield 1;
@@ -40,7 +41,8 @@ Stream<int> doWorkWithError(dynamic _) async* {
   throw StateError('error');
 }
 
-void sendMessages(BidirectionalStreamIsolate<String, int> isolate) async {
+void sendMessages(
+    BidirectionalStreamIsolate<String, int, dynamic> isolate) async {
   await wait(50);
   isolate.send('a');
   await wait(100);
@@ -53,7 +55,7 @@ void sendMessages(BidirectionalStreamIsolate<String, int> isolate) async {
   isolate.send('e');
 }
 
-Stream<int> doWorkWithListener(Stream<String> inc, dynamic _) async* {
+Stream<int> doWorkWithListener(Stream<String> inc) async* {
   inc.listen((msg) => print('isolate: $msg'));
 
   yield 0;

@@ -10,7 +10,7 @@ analyzer:
     implicit-dynamic: false
     implicit-casts: false
   exclude: 
-    - 'example/**'
+    - 'examples/**'
 
 linter:
   rules:
