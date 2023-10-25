@@ -343,7 +343,7 @@ class StreamIsolate<TStream, TArg> extends _StreamIsolateBase<TStream, TArg> {
   ///
   /// One can expect the base memory overhead of an isolate to be in the order
   /// of 30 kb.
-  static Future<StreamIsolate<TStream, Object?>> spawn<TStream>(
+  static Future<StreamIsolate<TStream, void>> spawn<TStream>(
     Stream<TStream> Function() entryPoint, {
     bool paused = false,
     bool errorsAreFatal = true,
@@ -354,7 +354,7 @@ class StreamIsolate<TStream, TArg> extends _StreamIsolateBase<TStream, TArg> {
     final errorPort = ReceivePort();
     final closePort = ReceivePort();
 
-    late StreamIsolate<TStream, Object?> streamIsolate;
+    late StreamIsolate<TStream, void> streamIsolate;
 
     final isolateToMainListener = isolateToMain.listen((Object? message) {
       streamIsolate._controller.sink.add(message as TStream);
@@ -379,9 +379,9 @@ class StreamIsolate<TStream, TArg> extends _StreamIsolateBase<TStream, TArg> {
     );
 
     if (broadcast) {
-      streamIsolate = StreamIsolate<TStream, Object?>._broadcast(isolate);
+      streamIsolate = StreamIsolate<TStream, void>._broadcast(isolate);
     } else {
-      streamIsolate = StreamIsolate<TStream, Object?>._(isolate);
+      streamIsolate = StreamIsolate<TStream, void>._(isolate);
     }
 
     streamIsolate._portsToClose = [
@@ -467,7 +467,7 @@ class StreamIsolate<TStream, TArg> extends _StreamIsolateBase<TStream, TArg> {
 
     late StreamIsolate<TStream, TArg> streamIsolate;
 
-    final isolateToMainListener = isolateToMain.listen((Object? message) {
+    final isolateToMainListener = isolateToMain.listen((dynamic message) {
       streamIsolate._controller.sink.add(message as TStream);
     });
 
@@ -571,7 +571,7 @@ class StreamIsolate<TStream, TArg> extends _StreamIsolateBase<TStream, TArg> {
   ///
   /// One can expect the base memory overhead of an isolate to be in the order
   /// of 30 kb.
-  static Future<BidirectionalStreamIsolate<TIn, TOut, Object?>>
+  static Future<BidirectionalStreamIsolate<TIn, TOut, void>>
       spawnBidirectional<TIn, TOut>(
     Stream<TOut> Function(Stream<TIn> messageStream) entryPoint, {
     bool paused = false,
@@ -722,8 +722,7 @@ class BidirectionalStreamIsolate<TIn, TOut, TArg>
   ///
   /// One can expect the base memory overhead of an isolate to be in the order
   /// of 30 kb.
-  static Future<BidirectionalStreamIsolate<TIn, TOut, Object?>>
-      spawn<TIn, TOut>(
+  static Future<BidirectionalStreamIsolate<TIn, TOut, void>> spawn<TIn, TOut>(
     Stream<TOut> Function(Stream<TIn> messageStream) entryPoint, {
     bool paused = false,
     bool errorsAreFatal = true,
@@ -734,7 +733,7 @@ class BidirectionalStreamIsolate<TIn, TOut, TArg>
     final errorPort = ReceivePort();
     final closePort = ReceivePort();
 
-    late BidirectionalStreamIsolate<TIn, TOut, Object?> streamIsolate;
+    late BidirectionalStreamIsolate<TIn, TOut, void> streamIsolate;
 
     final isolateToMainListener = isolateToMain.listen((dynamic message) {
       if (message is SendPort) {
@@ -767,9 +766,9 @@ class BidirectionalStreamIsolate<TIn, TOut, TArg>
 
     if (broadcast) {
       streamIsolate =
-          BidirectionalStreamIsolate<TIn, TOut, Object?>._broadcast(isolate);
+          BidirectionalStreamIsolate<TIn, TOut, void>._broadcast(isolate);
     } else {
-      streamIsolate = BidirectionalStreamIsolate<TIn, TOut, Object?>._(isolate);
+      streamIsolate = BidirectionalStreamIsolate<TIn, TOut, void>._(isolate);
     }
 
     streamIsolate._portsToClose = [

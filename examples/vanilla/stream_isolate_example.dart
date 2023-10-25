@@ -2,20 +2,34 @@ import 'dart:async';
 
 import 'package:stream_isolate/stream_isolate.dart';
 
-Future<void> wait(int ms) => Future.delayed(Duration(milliseconds: ms));
-
 void main() async {
-  final streamIsolate =
-      await StreamIsolate.spawnBidirectional<String, int>(doWorkWithListener);
+  // Create normal isolate
+  final streamIsolate = await StreamIsolate.spawn(doWork);
 
-  sendMessages(streamIsolate);
-
-  // final streamIsolate = await StreamIsolate.spawn<int>(doWork);
-
-  await for (final i in streamIsolate.stream) {
+  // Listen for isolate responses
+  streamIsolate.stream.listen((i) {
     print('main: $i');
-  }
+  });
 
+  // Create isolate with bidirectional communiucation
+  final bidirectionalStreamIsolate =
+      await BidirectionalStreamIsolate.spawn(doWorkWithListener);
+
+  // Listen for bidirectional isolate responses
+  bidirectionalStreamIsolate.stream.listen((i) {
+    print('main (bi): $i');
+  });
+
+  // Send messages to the bidirectional isolate
+  sendMessages(bidirectionalStreamIsolate);
+
+  // Wait for all isolates to complete
+  await Future.wait([
+    streamIsolate.getIsClosedFuture(),
+    bidirectionalStreamIsolate.getIsClosedFuture(),
+  ]);
+
+  // Signal that the program has completed
   print('Done');
 }
 
@@ -33,30 +47,8 @@ Stream<int> doWork() async* {
   yield 5;
 }
 
-Stream<int> doWorkWithError() async* {
-  yield 0;
-  await wait(100);
-  yield 1;
-  await wait(100);
-  throw StateError('error');
-}
-
-void sendMessages(
-    BidirectionalStreamIsolate<String, int, dynamic> isolate) async {
-  await wait(50);
-  isolate.send('a');
-  await wait(100);
-  isolate.send('b');
-  await wait(100);
-  isolate.send('c');
-  await wait(100);
-  isolate.send('d');
-  await wait(100);
-  isolate.send('e');
-}
-
 Stream<int> doWorkWithListener(Stream<String> inc) async* {
-  inc.listen((msg) => print('isolate: $msg'));
+  inc.listen((msg) => print('isolate (bi): $msg'));
 
   yield 0;
   await wait(100);
@@ -69,4 +61,19 @@ Stream<int> doWorkWithListener(Stream<String> inc) async* {
   yield 4;
   await wait(100);
   yield 5;
+}
+
+Future<void> wait(int ms) => Future.delayed(Duration(milliseconds: ms));
+
+void sendMessages(BidirectionalStreamIsolate<String, int, void> isolate) async {
+  await wait(50);
+  isolate.send('a');
+  await wait(100);
+  isolate.send('b');
+  await wait(100);
+  isolate.send('c');
+  await wait(100);
+  isolate.send('d');
+  await wait(100);
+  isolate.send('e');
 }

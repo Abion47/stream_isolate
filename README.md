@@ -10,19 +10,19 @@ A wrapper class for `Isolate` that exposes a communication channel using a `Stre
 
  - [Dart Docs](https://pub.dev/documentation/stream_isolate/latest/stream_isolate/stream_isolate-library.html)
 
-## Usage
+## Basic Usage
 
 To use, call `StreamIsolate.spawn` with the same types of arguments passed to `Isolate.spawn`. You can then use the returned instance to subscribe to events published by the isolate:
 
 ```dart
-final streamIsolate = await StreamIsolate.spawn<int>(doWork);
+final streamIsolate = await StreamIsolate.spawn(doWork);
 await for (final i in streamIsolate.stream) {
   print(i);
 }
 ```
 
 ```dart
-Stream<int> doWork(_) async* {
+Stream<int> doWork() async* {
   yield 1;
   yield 2;
   yield 3;
@@ -31,10 +31,12 @@ Stream<int> doWork(_) async* {
 }
 ```
 
-You can also call `StreamIsolate.spawnBidirectional` to create an isolate that exposes an additional communication stream for sending messages to the instance:
+## Bidirectional Communication
+
+You can also call `BidirectionalStreamIsolate.spawn` (or `StreamIsolate.spawnBidirectional`) to create an isolate that exposes an additional communication stream for sending messages to the instance:
 
 ```dart
-final streamIsolate = await StreamIsolate.spawnBidirectional<String, int>(doWork);
+final streamIsolate = await BidirectionalStreamIsolate.spawn(doWork);
 await for (final i in streamIsolate.stream) {
   print(i);
   streamIsolate.send('received');
@@ -42,7 +44,7 @@ await for (final i in streamIsolate.stream) {
 ```
 
 ```dart
-Stream<int> doWorkWithListener(Stream<String> inc, _) async* {
+Stream<int> doWorkWithListener(Stream<String> inc) async* {
   inc.listen((msg) => print('from main: $msg'));
 
   yield 1;
@@ -52,3 +54,42 @@ Stream<int> doWorkWithListener(Stream<String> inc, _) async* {
   yield 5;
 }
 ```
+
+## Passing Initial Arguments
+
+You can optionally send an argument that gets passed to the thread function when it first runs. This is done using the `StreamIsolate.spawnWithArgument` and `BidirectionalStreamIsolate.spawnWithArgument` methods.
+
+```dart
+class IsolateArgs {
+  final int index;
+  final String name;
+
+  const IsolateArgs(this.index, this.name);
+}
+
+...
+
+final args = IsolateArgs(1, 'Worker Isolate 1');
+final streamIsolate = await StreamIsolate.spawnWithArgument(doWork, argument: args);
+await for (final i in streamIsolate.stream) {
+  print(i);
+  streamIsolate.send('received');
+}
+```
+
+```dart
+Stream<int> doWorkWithListener(Stream<String> inc, IsolateArgs args) async* {
+  print('Starting worker isolate ${args.name}, Index: ${args.index}');
+
+  yield 1;
+  yield 2;
+  yield 3;
+  yield 4;
+  yield 5;
+}
+```
+
+## Examples
+
+* [Vanilla](https://github.com/Abion47/stream_isolate/tree/main/examples/vanilla) - A simple example of using stream isolates.
+* [Multithreaded Noise](https://github.com/Abion47/stream_isolate/tree/main/examples/multithreaded_noise) - An example of a Flutter app using stream isolates to generate animated Perlin Noise.
