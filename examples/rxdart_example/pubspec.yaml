@@ -1,0 +1,14 @@
+name: rxdart_example
+description: A sample command-line application.
+version: 1.0.0
+publish_to: 'none' 
+
+environment:
+  sdk: '>=2.18.1 <4.0.0'
+
+dependencies:
+  rxdart: ^0.27.7
+  stream_isolate: { path: ../.. }
+
+dev_dependencies:
+  lints: ^2.0.0

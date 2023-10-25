@@ -8,6 +8,7 @@
 * Bumped Dart SDK range from '<3.0.0' to '<4.0.0' to explicitly support Dart 3.
 * Fixed broadcast unit test to actually complete and confirm fix of known issue.
 * Added unit tests for spawning isolates that pass an initial argument.
+* Added an example of using RxDart to manage isolate communication.
 * Added an example of a Flutter app using multi-threaded noise generation.
 
 ## 0.1.2
