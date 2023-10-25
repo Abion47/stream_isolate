@@ -1,5 +1,5 @@
 ## 0.2.0
-* **Breaking Change**: Arguments removed from `spawn` and `spawnBidirectional`.
+* **Breaking Change**: `argument` removed from `StreamIsolate.spawn` and `StreamIsolate.spawnBidirectional` methods.
   * This also removes the potentially useless `Object? argument` parameter from the entry point function.
 * **Important Change**: New static methods `spawnWithArgument` and `spawnBidirectionalWithArgument` added to `StreamIsolate` for strong typing of the entry point function `argument` parameter.
 * Moved code for `StreamIsolate.spawnBidirectional` and `StreamIsolate.spawnBidirectionalWithArgs` static methods to `BidirectionalStreamIsolate.spawn` and `BidirectionalStreamIsolate.spawnWithArgument`, respectively. 
